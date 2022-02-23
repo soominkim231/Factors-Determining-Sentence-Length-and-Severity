@@ -1,0 +1,267 @@
+---
+title: "Logit Model and Accompanying Figures"
+date: "3/5/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, eval = T, error = T, warning = FALSE, message=FALSE)
+suppressMessages(library(ggplot2))
+suppressMessages(library(tidyverse))
+suppressMessages(library(dplyr))
+```
+
+```{r}
+setwd("~/Desktop/Junior/19W/GOVT19/GOVT FINAL/Final_Gov19_Submission")
+#load(file = "~/Desktop/GOV19/Final Project/inmates.Rdata")
+detach("package:dplyr", character.only = TRUE)
+library("dplyr", character.only = TRUE)
+load("inmates.Rdata")
+inmates_logit <- inmates %>% select(AGE_CAT, RACE, SES_IMEDFAMILY_INCARCERATED, EDUCATION, GENDER, 
+                                    SENTENCEMTH, LIFE_DEATH, OFFENSE)
+```
+
+#Recoding variables
+```{r}
+#Create binary female variable 
+inmates_logit$FEMALE <- NA
+inmates_logit$FEMALE[inmates_logit$GENDER == "Male"] <- 0
+inmates_logit$FEMALE[inmates_logit$GENDER == "Female"] <- 1
+
+#Create four dummy variables for each race 
+inmates_logit$RACE[inmates_logit$RACE == "Missing"] <- NA
+inmates_logit$BLACK <- NA
+inmates_logit$HISPANIC <- NA 
+inmates_logit$WHITE <- NA 
+inmates_logit$OTHER <- NA 
+inmates_logit$BLACK[inmates_logit$RACE != "Black"] <- 0 
+inmates_logit$BLACK[inmates_logit$RACE == "Black"] <- 1
+inmates_logit$WHITE[inmates_logit$RACE != "White"] <- 0 
+inmates_logit$WHITE[inmates_logit$RACE == "White"] <- 1
+inmates_logit$HISPANIC[inmates_logit$RACE != "Hispanic"] <- 0 
+inmates_logit$HISPANIC[inmates_logit$RACE == "Hispanic"] <- 1
+inmates_logit$OTHER[inmates_logit$RACE != "Other"] <- 0 
+inmates_logit$OTHER[inmates_logit$RACE == "Other"] <- 1
+
+#Recode education so that "Missing" values become NA's that the model then removes
+inmates_logit$EDUCATION[as.numeric(inmates_logit$EDUCATION) == 19] <- NA
+
+#Recode the factor variable of education to a new numeric variable
+inmates_logit <- inmates_logit %>% mutate(EDUCATION_NUM = as.numeric(EDUCATION))
+
+#Recode socioeconomic status variable
+inmates_logit$FAMILY_INCARCERATED <- NA
+inmates_logit$FAMILY_INCARCERATED[inmates_logit$SES_IMEDFAMILY_INCARCERATED == "Immediate family never incarcerated"] <- 0 
+inmates_logit$FAMILY_INCARCERATED[inmates_logit$SES_IMEDFAMILY_INCARCERATED == "Immediate family incarcerated"] <- 1 
+inmates_logit$FAMILY_INCARCERATED[inmates_logit$SES_IMEDFAMILY_INCARCERATED == "Missing"] <- NA
+
+#Recode age category variable into a 5 point scale variable
+inmates_logit$AGE <- NA
+inmates_logit$AGE[inmates_logit$AGE_CAT == "< 25 yrs"] <- 0
+inmates_logit$AGE[inmates_logit$AGE_CAT == "25-34"] <- 1
+inmates_logit$AGE[inmates_logit$AGE_CAT == "35-44"] <- 2
+inmates_logit$AGE[inmates_logit$AGE_CAT == "45-54"] <- 3
+inmates_logit$AGE[inmates_logit$AGE_CAT == "55-64"] <- 4
+inmates_logit$AGE[inmates_logit$AGE_CAT == "65-96"] <- 5
+
+#Remove observations for which we have no sentencing data at all.  
+#These are cases where SENTENCEMTH is NA and LIFE_DEATH is FALSE.
+#To do this, we make a 'missing sentence' column, where 1 will represent entries that have no sentencing data.
+inmates_logit$MISSINGSENTENCE <- NA
+inmates_logit$MISSINGSENTENCE[is.na(inmates_logit$SENTENCEMTH) & inmates_logit$LIFE_DEATH == FALSE] <- 1
+inmates_logit$MISSINGSENTENCE[inmates_logit$SENTENCEMTH >= 0] <- 0
+inmates_logit$LIFE_DEATH2 <- NA
+inmates_logit$LIFE_DEATH2[inmates_logit$LIFE_DEATH == FALSE] <- 0 
+inmates_logit$LIFE_DEATH2[inmates_logit$LIFE_DEATH == TRUE] <- 1
+inmates_logit <- inmates_logit %>% 
+  select(LIFE_DEATH2, SENTENCEMTH, LIFE_DEATH, everything()) %>% 
+  filter(MISSINGSENTENCE != 1 | is.na(MISSINGSENTENCE))
+```
+
+#Subset data to only include entries for violent offenses, as violent offenses are a near perfect predictor for receiving extreme sentences.
+```{r}
+inmates_logit <- subset(inmates_logit, OFFENSE == "VIOLENT")
+```
+
+#Create a logit model for the binary variable of receiving an extreme sentence (sentenced to life or death) or not.
+```{r}
+logit.model <- glm(LIFE_DEATH2 ~ BLACK + HISPANIC + OTHER + FEMALE + EDUCATION_NUM + FAMILY_INCARCERATED + AGE,
+              data = inmates_logit, family = binomial(link = "logit"))
+summary(logit.model)
+exp(coef(logit.model)) / (1 + exp( coef(logit.model) ))
+```
+
+# Calculate percent correctly predicted by the model.
+```{r}
+library(pscl)
+hitmiss(logit.model)
+```
+
+#Create a stargazer table of the logistic regression model.
+```{r}
+library(stargazer)
+stargazer(logit.model, type = "text", title = "Change in Pr(Receiving an Extreme Sentence) based on Predictors",
+          covariate.labels = c("Black", "Hispanic","Other Race", "Female", "Education","Immediate Family Incarcerated","Age"),
+          dep.var.labels = c("Change in Pr(Extreme Sentence)"),
+          add.lines = list(c("Percent correctly predicted", "84.69%")),
+          star.char = "*",
+          star.cutoffs = 0.05, 
+          notes = c("*p < .05, two-tailed"),
+          notes.append = FALSE,
+          header = FALSE)
+```
+
+#Make an airplane plot of the change in predicted probability for a unit change in predictors.
+```{r}
+library(gtools)
+#library(lme4)
+#library(arm)
+
+# Calculate predicted probability for a profile
+# A white male HS graduate with no immediate family incarcerated and under 25 years old
+pred_logit <- logit.model$coef[1] + logit.model$coef[2] * 0 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 0
+inv.logit(pred_logit)
+
+# Calculate that same profile except race changed to black (to check to see if airplane plot is plotting correctly)
+pred_logit_black <- logit.model$coef[1] + logit.model$coef[2] * 1 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 0
+inv.logit(pred_logit_black)
+
+```
+
+
+```{r}
+covariates <- c("Black" ,"Hispanic", "Other", "Female", "Education", "Immediate Family\nIncarcerated", "Age")
+logit.model$coef[1]
+logit_beta <- c(logit.model$coef[2],
+                logit.model$coef[3],
+                logit.model$coef[4],
+                logit.model$coef[5],
+                logit.model$coef[6],
+                logit.model$coef[7],
+                logit.model$coef[8])
+
+logit_se <- c(sqrt(vcov(logit.model)[2,2]),
+              sqrt(vcov(logit.model)[3,3]),
+              sqrt(vcov(logit.model)[4,4]),
+              sqrt(vcov(logit.model)[5,5]),
+              sqrt(vcov(logit.model)[6,6]),
+              sqrt(vcov(logit.model)[7,7]),
+              sqrt(vcov(logit.model)[8,8]))
+
+logit_df <- data.frame(logit_beta, logit_se)
+logit_df
+
+logit_df$fd <- (inv.logit(pred_logit + logit_beta) - inv.logit(pred_logit))
+logit_df$fdup <- (inv.logit(pred_logit + logit_beta + 1.96 * logit_se) - inv.logit(pred_logit))
+logit_df$fdlb <- (inv.logit(pred_logit + logit_beta - 1.96 * logit_se) - inv.logit(pred_logit))
+
+ggplot(data = logit_df, 
+       aes(x = reorder(covariates, fd), y = fd)) + 
+  geom_pointrange(aes(ymin = fdlb, ymax = fdup), width = .1) + coord_flip() +
+  ggtitle("Effects Plot of Change in Probability of Receiving an Extreme Sentence") + 
+  labs(y = "Change in Probability of Receiving an Extreme Sentence\nDue to One Unit Change in Predictor",
+       x = "Predictor") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_y_continuous(breaks = seq(-0.02, 0.04, 0.01), limits = c(-0.02, 0.04))
+```
+
+# Make a graph of the probability of receiving an extreme sentence as a function of age.
+```{r}
+par(mar=c(5,6,4,1)+.1)
+sim.data <- data.frame(BLACK = 0,
+                       HISPANIC = 0,
+                       OTHER = 0,
+                       FEMALE = 0,
+                       EDUCATION_NUM = 13,
+                       FAMILY_INCARCERATED = 0,
+                       AGE = c(1,2,3,4,5,6))
+summary(sim.data)
+
+OutHats <- predict(logit.model, se.fit = TRUE, newdata = sim.data)
+OutHats
+OutHatsUB <- OutHats$fit + (1.96 * OutHats$se.fit)
+OutHatsLB <- OutHats$fit - (1.96 * OutHats$se.fit)
+OutHats <- cbind(as.data.frame(OutHats), OutHatsUB, OutHatsLB)
+OutHats <- data.frame(lapply(OutHats, binomial(link = "logit")$linkinv))
+both <- cbind(sim.data, OutHats)
+```
+
+```{r}
+plot(both$AGE,
+     both$fit,
+     ylim = c(0, 1),
+     t = "l",
+     lwd = 2,
+     xlab = "Age",
+     ylab = "",
+     main = "Pr(Extreme Sentence) as a Function of Age"
+     ,axes = F
+     )
+lines(both$AGE, both$OutHatsUB, lty = 2)
+lines(both$AGE, both$OutHatsLB, lty = 2)
+axis(side = 1, labels = NA)
+axis(side = 2)
+lablist = c("\n< 25", "\n25-34", "\n35-44", "\n45-54", "\n55-64", "\n65-96")
+text(seq(1, 6, by = 1), par("usr")[3], labels = lablist, srt = 0, pos = 1, xpd = T, cex = 1)
+title(ylab = "Predicted Probability of Defendant\nReceiving an Extreme Sentence", line = 2.3, cex.lab = 1)
+```
+
+# Make a table to show the change in predicted probability of receiving an extreme sentence as the age category for the profile increases.
+```{r}
+library(knitr)
+library(kableExtra)
+library(gtools)
+
+logit.model$coef
+pred_logit <- logit.model$coef[1] + logit.model$coef[2] * 0 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 0
+inv.logit(pred_logit)
+
+pred_logit_2534 <- logit.model$coef[1] + logit.model$coef[2] * 1 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 1
+inv.logit(pred_logit_2534)
+
+pred_logit_3544 <- logit.model$coef[1] + logit.model$coef[2] * 1 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 2
+inv.logit(pred_logit_3544)
+
+pred_logit_4554 <- logit.model$coef[1] + logit.model$coef[2] * 1 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 3
+inv.logit(pred_logit_4554)
+
+pred_logit_5564 <- logit.model$coef[1] + logit.model$coef[2] * 1 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 4
+inv.logit(pred_logit_5564)
+
+pred_logit_6596 <- logit.model$coef[1] + logit.model$coef[2] * 1 +
+  logit.model$coef[3] * 0 + logit.model$coef[4] * 0 + logit.model$coef[5] * 0 +
+  logit.model$coef[6] * 13 + logit.model$coef[7] * 0 + logit.model$coef[8] * 5
+inv.logit(pred_logit_6596)
+
+inv.logit(pred_logit_2534) - inv.logit(pred_logit)
+inv.logit(pred_logit_3544) - inv.logit(pred_logit_2534)
+inv.logit(pred_logit_4554) - inv.logit(pred_logit_3544)
+inv.logit(pred_logit_5564) - inv.logit(pred_logit_4554)
+inv.logit(pred_logit_6596) - inv.logit(pred_logit_5564)
+
+change_in_prob <- c(0.05982, 0.05398, 0.070760, 0.08735, 0.10018)
+category_change <- c("Increase to 25-34 from < 25",
+                     "Increase to 35-44 from 25-34",
+                     "Increase to 45-54 from 35-44",
+                     "Increase to 55-64 from 45-54",
+                     "Increase to 65-96 from 55-64")
+change_over_age <- data.frame(cbind(category_change, change_in_prob))
+
+kable(change_over_age, format = "pandoc", booktabs = T, 
+      caption = "Change in Pr(Extreme Sentence) for Age Increase Across Categories",
+      escape = FALSE, col.names = c("Change in Age", "Change in Pr(Extreme Sentence)"))
+```

@@ -1,0 +1,178 @@
+---
+title: "Linear Models and Accompanying Figures"
+date: "3/5/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, eval = T, error = T, warning = FALSE, message=FALSE)
+suppressMessages(library(ggplot2))
+suppressMessages(library(tidyverse))
+suppressMessages(library(dplyr))
+```
+
+```{r}
+#load(file = "~/Desktop/GOV19/Final Project/inmates.Rdata")
+load("inmates.Rdata")
+detach("package:dplyr", character.only = TRUE)
+library("dplyr", character.only = TRUE)
+inmates_linear <- inmates %>% select(AGE_CAT, RACE, OFFENSE_VIOLENT, OFFENSE_PROPERTY, OFFENSE_DRUG, SES_IMEDFAMILY_INCARCERATED, EDUCATION, GENDER, TYPEOFFENSE, SENTENCEMTH)
+inmates_linear <- inmates_linear %>% drop_na(SENTENCEMTH)
+```
+
+#Recoding variables
+```{r}
+#Recode gender to a binary female variable
+inmates_linear$FEMALE <- NA
+inmates_linear$FEMALE[inmates_linear$GENDER == "Male"] <- 0
+inmates_linear$FEMALE[inmates_linear$GENDER == "Female"] <- 1
+
+#Recode race to four dummy variables for white, Hispanic, other, and Black
+inmates_linear$RACE[inmates_linear$RACE == "Missing"] <- NA
+inmates_linear$BLACK <- NA
+inmates_linear$HISPANIC <- NA 
+inmates_linear$WHITE <- NA 
+inmates_linear$OTHER <- NA 
+inmates_linear$BLACK[inmates_linear$RACE != "Black"] <- 0 
+inmates_linear$BLACK[inmates_linear$RACE == "Black"] <- 1
+inmates_linear$WHITE[inmates_linear$RACE != "White"] <- 0 
+inmates_linear$WHITE[inmates_linear$RACE == "White"] <- 1
+inmates_linear$HISPANIC[inmates_linear$RACE != "Hispanic"] <- 0 
+inmates_linear$HISPANIC[inmates_linear$RACE == "Hispanic"] <- 1
+inmates_linear$OTHER[inmates_linear$RACE != "Other"] <- 0 
+inmates_linear$OTHER[inmates_linear$RACE == "Other"] <- 1
+
+#Recode offense type variables
+inmates_linear$OFFENSE_VIOLENT[inmates_linear$OFFENSE_VIOLENT == "No"] <- 0
+inmates_linear$OFFENSE_VIOLENT[inmates_linear$OFFENSE_VIOLENT == "Yes"] <- 1
+inmates_linear$OFFENSE_VIOLENT[inmates_linear$OFFENSE_VIOLENT == "DK/Refused/Missing"] <- NA
+inmates_linear$OFFENSE_PROPERTY[inmates_linear$OFFENSE_PROPERTY == "No"] <- 0
+inmates_linear$OFFENSE_PROPERTY[inmates_linear$OFFENSE_PROPERTY == "Yes"] <- 1
+inmates_linear$OFFENSE_PROPERTY[inmates_linear$OFFENSE_PROPERTY == "DK/Refused/Missing"] <- NA
+inmates_linear$OFFENSE_DRUG[inmates_linear$OFFENSE_DRUG == "No"] <- 0
+inmates_linear$OFFENSE_DRUG[inmates_linear$OFFENSE_DRUG == "Yes"] <- 1
+inmates_linear$OFFENSE_DRUG[inmates_linear$OFFENSE_DRUG == "DK/Refused/Missing"] <- NA
+
+#Recode education so that "Missing" values become NA's that the model can remove 
+inmates_linear$EDUCATION[as.numeric(inmates_linear$EDUCATION) == 19] <- NA
+
+#Recode the factor variable of education to a new numeric variable
+inmates_linear <- inmates_linear %>% mutate(EDUCATION_NUM = as.numeric(EDUCATION))
+
+#Recode socioeconomic status variable
+inmates_linear$SES_IMEDFAMILY_INCARCERATED[inmates_linear$SES_IMEDFAMILY_INCARCERATED == "Immediate family never incarcerated"] <- 0 
+inmates_linear$SES_IMEDFAMILY_INCARCERATED[inmates_linear$SES_IMEDFAMILY_INCARCERATED == "Immediate family incarcerated"] <- 1 
+inmates_linear$SES_IMEDFAMILY_INCARCERATED[inmates_linear$SES_IMEDFAMILY_INCARCERATED == "Missing"] <- NA
+
+#Recode age category variable into a 5 point scale variable
+inmates_linear$AGE <- NA
+inmates_linear$AGE[inmates_linear$AGE_CAT == "< 25 yrs"] <- 0
+inmates_linear$AGE[inmates_linear$AGE_CAT == "25-34"] <- 1
+inmates_linear$AGE[inmates_linear$AGE_CAT == "35-44"] <- 2
+inmates_linear$AGE[inmates_linear$AGE_CAT == "45-54"] <- 3
+inmates_linear$AGE[inmates_linear$AGE_CAT == "55-64"] <- 4
+inmates_linear$AGE[inmates_linear$AGE_CAT == "65-96"] <- 5
+```
+
+#Model 1: OLS Model with Interaction Term
+```{r}
+linear.model <- lm(SENTENCEMTH ~ BLACK + HISPANIC + OTHER + OFFENSE_VIOLENT + OFFENSE_PROPERTY + OFFENSE_DRUG + AGE + SES_IMEDFAMILY_INCARCERATED + as.numeric(EDUCATION) + FEMALE + BLACK*OFFENSE_VIOLENT,
+                   data = inmates_linear)
+summary(linear.model)
+```
+
+#Model 2: OLS Model excluding outliers (SENTENCEMTH > 3000)
+```{r}
+outliers3000 <- subset(inmates_linear, SENTENCEMTH <= 3000)
+linear.outliers3000 <- lm(SENTENCEMTH ~ BLACK + HISPANIC + OTHER + OFFENSE_VIOLENT + OFFENSE_PROPERTY + OFFENSE_DRUG + AGE + SES_IMEDFAMILY_INCARCERATED + as.numeric(EDUCATION) + FEMALE + BLACK*OFFENSE_VIOLENT, data = outliers3000)
+summary(linear.outliers3000)
+```
+
+#Model 3: OLS Model excluding outliers (SENTENCEMTH > 2000)
+```{r}
+outliers2000 <- subset(inmates_linear, SENTENCEMTH <= 2000)
+linear.outliers2000 <- lm(SENTENCEMTH ~ BLACK + HISPANIC + OTHER + OFFENSE_VIOLENT + OFFENSE_PROPERTY + OFFENSE_DRUG + AGE + SES_IMEDFAMILY_INCARCERATED + as.numeric(EDUCATION) + FEMALE + BLACK*OFFENSE_VIOLENT, data = outliers2000)
+summary(linear.outliers2000)
+```
+
+
+#Table comparing the output of all three models
+```{r}
+library(stargazer)
+stargazer(linear.model, linear.outliers3000, linear.outliers2000, type = 'text',
+          title = "Comparing OLS Models (w/ Varying Degree of Outlier Removal) of Sentence Length Varied Across Predictors",
+          column.labels = c("OLS", "OLS <= 3000 months", "OLS <= 2000 months"),
+          covariate.labels = c("Black", "Hispanic", "Other Race", "Violent Offense", "Property Offense", "Drug Offense",
+                             "Age", "Immediate Family Incarcerated", "Education", 
+                             "Female", "Black x Violent Offense"),
+          dep.var.labels = "Sentence Length in Months",
+          keep.stat = c("n","rsq","adj.rsq"),
+          star.char = c("*"), star.cutoffs = c(0.05), notes.append = FALSE,
+          notes = c("Source: 2004 Survey of Inmates",
+                    "*p < 0.05, two-tailed"))
+
+```
+
+#Calculate the p-values of the effect of being black and a violent offender to determine if the effect is statistically significant.
+#Effect of being Black and a violent offender: Standard Error & P-value
+```{r}
+linear.outliers2000$coef[5]
+linear.outliers2000$coef[12]
+
+blackviolent.effect <- linear.outliers2000$coef[5] + linear.outliers2000$coeff[12]
+blackviolent.effect
+
+blackviolenteffect.se <- sqrt(vcov(linear.outliers2000)[5,5] + (1)^2*vcov(linear.outliers2000)[12,12] + 2*(1)*vcov(linear.outliers2000)[5,12])
+blackviolenteffect.se
+
+#Z Score
+(linear.outliers2000$coeff[5] + linear.outliers2000$coeff[12]) / (sqrt(vcov(linear.outliers2000)[5,5] + (1)^2*vcov(linear.outliers2000)[12,12] + 2*(1)*vcov(linear.outliers2000)[5,12]))
+
+#P-value (using z-score 26.95559)
+2*pnorm(-abs(26.95559 ))
+```
+
+#Create a table showing whether the impact of being a violent offender differs for Black vs white offenders.
+```{r}
+library(knitr)
+library(kableExtra)
+profile_change <- c("Black Non-Violent", "White Violent", "Black Violent")
+length_effect <- c(4.75, 107.51, 129.40)
+pvals <- c("0.1669", "<2e-16", "4.91e-160")
+stat_sig <- c("No", "Yes", "Yes")
+
+effects_table <- data.frame(cbind(profile_change, length_effect, pvals, stat_sig))
+
+kable(effects_table, "latex", booktabs = T, caption = "Violent Offender Status has Greater Impact on Increase in Sentence Length for Blacks vs Whites",
+      col.names = c("Change in Profile (Baseline = White Non-Violent)", "Effect on Sentence Length (Months)", 
+                                    "p-value", "Statistically Significant")) %>% 
+  column_spec(1:2, width = "5cm")
+effects_table
+```
+
+#Calculate pairwise correlations between all variables as a diagnostic test for multicollinearity
+```{r}
+library(Hmisc)
+
+#Create a dataframe that includes all variables used in our model. 
+variables_to_test <- inmates_linear %>% select(SENTENCEMTH, BLACK, HISPANIC, OTHER, OFFENSE_VIOLENT, OFFENSE_DRUG, AGE, SES_IMEDFAMILY_INCARCERATED, EDUCATION_NUM, FEMALE)
+rcorr(as.matrix(variables_to_test))
+
+#Conclusion: no multicollinearity.
+```
+
+#Boxplot showing comparison of sentencing months for violent vs. non-violent offenses by race 
+
+```{r}
+library(plyr)
+library(ggplot2)
+
+ggplot(subset(outliers2000, (RACE == "White" | RACE == "Black") & OFFENSE_VIOLENT != "NA")) +
+  aes(x = OFFENSE_VIOLENT, y = SENTENCEMTH) +
+  geom_boxplot() +  
+  facet_wrap(~RACE) + ggtitle("Comparing Sentencing Months for Violent vs. Non-Violent Offenses by Race") + 
+  scale_x_discrete(labels=c("Non-Violent", "Violent") , name ="Type of Offense") + 
+  scale_y_continuous(name ="Number of Sentencing Months") 
+
+ggsave("barplot.pdf")
+```
