@@ -1,5 +1,5 @@
 # Factors-Determining-Sentence-Length-and-Severity
-Overview: Factors Determining Sentence Length and Severity for U.S. Inmates using R, multivariate linear regression, and logistic regression.
+Factors Determining Sentence Length and Severity for U.S. Inmates using R, multivariate linear regression, and logistic regression.
 
 ## 1. Question
 Of demographic and case-specific factors, which are significant predictors of sentence length and severity?
